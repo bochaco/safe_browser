@@ -5,6 +5,7 @@ import rpc from 'pauls-electron-rpc'
 const BEAKER_VERSION = '0.0.1'
 const WITH_CALLBACK_TYPE_PREFIX = '_with_cb_';
 const WITH_ASYNC_CALLBACK_TYPE_PREFIX = '_with_async_cb_';
+const RETURN_OBJECT_TYPE_PREFIX = '_return_object_';
 
 // Use a readable RPC stream to invoke a provided callback function,
 // resolving the promise upon the closure of the stream the sender.
@@ -39,6 +40,23 @@ const readableToAsyncCallback = (rpcAPI, safeAppGroupId) => {
   }
 }
 
+const readableToObject = (rpcAPI) => {
+  console.log("Bound TO OBJ function")
+  return (arg1, arg2) => {
+    console.log("Invoking TO OBJ function: ", arg1, arg2)
+    return new Promise((resolve, reject) => {
+      return rpcAPI(arg1, arg2).then(
+        (serialised) => {
+          console.log("FROM OBJ function: ", serialised)
+          let o = JSON.parse(serialised);
+          o.quickSetup = new Function('return ' + o.quickSetup)()
+          return resolve(o);
+        },
+        reject
+      )
+    });
+  }
+}
 
 // method which will populate window.beaker with the APIs deemed appropriate for the protocol
 export default function () {
@@ -57,6 +75,7 @@ export default function () {
     let fnsToImport = [];
     let fnsWithCallback = [];
     let fnsWithAsyncCallback = [];
+    let fnsWithObject = [];
     for (var fn in webAPIs[k]) {
       // We adapt the functions which contain a callback
       if (fn.startsWith(WITH_CALLBACK_TYPE_PREFIX)) {
@@ -75,11 +94,16 @@ export default function () {
         // Provide the safeAppGroupId to map it to all safeApp instances created,
         // so they can be automatically freed when the page is closed or refreshed
         fnsWithAsyncCallback[newFnName] = readableToAsyncCallback(rpcAPI[fn], safeAppGroupId);
+      } else if (fn.startsWith(RETURN_OBJECT_TYPE_PREFIX)) {
+        let manifest = {[fn]: 'promise'};
+        let rpcAPI = rpc.importAPI(RETURN_OBJECT_TYPE_PREFIX + k, manifest, { timeout: false })
+        let newFnName = fn.replace(RETURN_OBJECT_TYPE_PREFIX, '');
+        fnsWithObject[newFnName] = readableToObject(rpcAPI[fn]);
       } else {
         fnsToImport[fn] = webAPIs[k][fn];
       }
     }
 
-    window[k] = Object.assign(rpc.importAPI(k, fnsToImport, { timeout: false }), fnsWithCallback, fnsWithAsyncCallback);
+    window[k] = Object.assign(rpc.importAPI(k, fnsToImport, { timeout: false }), fnsWithCallback, fnsWithAsyncCallback, fnsWithObject);
   }
 }

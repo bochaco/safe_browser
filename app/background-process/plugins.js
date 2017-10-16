@@ -9,6 +9,7 @@ import {sendToShellWindow} from './logInRenderer'
 // =
 const WITH_CALLBACK_TYPE_PREFIX = '_with_cb_';
 const WITH_ASYNC_CALLBACK_TYPE_PREFIX = '_with_async_cb_';
+const RETURN_OBJECT_TYPE_PREFIX = '_return_object_';
 
 const PLUGIN_NODE_MODULES = path.join(__dirname, 'node_modules')
 log.debug('[PLUGINS] Loading from', PLUGIN_NODE_MODULES)
@@ -105,6 +106,22 @@ export function setupProtocolHandlers () {
     }, Promise.resolve());
 }
 
+
+class MutableDataObj {
+  constructor(handle) {
+    this._handle = handle;
+  }
+
+  method1(a) {
+    console.log("Method 1: ", a);
+  }
+
+  method2(a) {
+    console.log("Method 2: ", a, this._handle);
+  }
+}
+
+
 // setup all web APIs
 export function setupWebAPIs () {
   getAllInfo('webAPIs').forEach(api => {
@@ -116,11 +133,33 @@ export function setupWebAPIs () {
     let fnsToExport = [];
   let fnsWithCallbacks = [];
   let fnsWithAsyncCallbacks = [];
+  let fnsWithObject = [];
+  let methodsWithObject = [];
   for (var fn in api.manifest) {
     if (fn.startsWith(WITH_CALLBACK_TYPE_PREFIX)) {
       fnsWithCallbacks[fn] = api.manifest[fn];
     } else if (fn.startsWith(WITH_ASYNC_CALLBACK_TYPE_PREFIX)) {
       fnsWithAsyncCallbacks[fn] = api.manifest[fn];
+    } else if (fn.startsWith(RETURN_OBJECT_TYPE_PREFIX)) {
+      fnsWithObject[fn] = api.manifest[fn];
+      //api.methods[fn]("aaaa", "typetag")
+      methodsWithObject[fn] = (arg1, arg2) => {
+        return new Promise((resolve, reject) => {
+          console.log("INTERCEPTING: ", arg1, arg2)
+          let o = new MutableDataObj(arg2);
+          console.log("Obj: ", o);
+          o.method1 = '' + o.method1;
+//          o.method2 = '' + o.method2;
+          let str = JSON.stringify(o);
+          console.log("Obj serial: ", str);
+          return resolve(str);
+
+//          return api.methods[fn].call(null, arg1, arg2)
+/*            .then((res) => {
+              console.log("Obj res: ", res);
+            })*/
+        });
+      }
     } else {
       fnsToExport[fn] = api.manifest[fn];
     }
@@ -128,6 +167,7 @@ export function setupWebAPIs () {
   rpc.exportAPI(api.name, fnsToExport, api.methods)
   rpc.exportAPI(WITH_CALLBACK_TYPE_PREFIX + api.name, fnsWithCallbacks, api.methods) // FIXME: api.methods shall be probably chopped too
   rpc.exportAPI(WITH_ASYNC_CALLBACK_TYPE_PREFIX + api.name, fnsWithAsyncCallbacks, api.methods) // FIXME: api.methods shall be probably chopped too
+  rpc.exportAPI(RETURN_OBJECT_TYPE_PREFIX + api.name, fnsWithObject, api.methods/*methodsWithObject*/)
 })
 }
 
